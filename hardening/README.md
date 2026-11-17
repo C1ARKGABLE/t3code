@@ -1,8 +1,8 @@
 # Hardening
 
-This fork keeps `main` as an unmodified mirror of
-[pingdotgg/t3code](https://github.com/pingdotgg/t3code). Hardening work lives on the
-`hardened` branch.
+This fork follows stable releases of [pingdotgg/t3code](https://github.com/pingdotgg/t3code)
+on the `hardened` branch, where the hardening work lives. The fork's `main` is not kept up
+to date.
 
 Releases from this fork have not been evaluated yet. Do not treat any build as reviewed.
 

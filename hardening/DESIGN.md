@@ -11,12 +11,15 @@ without a human approving it.
 
 | Branch | Contents | Who writes it |
 |---|---|---|
-| `main` | Exact mirror of upstream `main` | The sync workflow only (fast-forward) |
 | `hardened` (default) | Upstream stable release + this fork's hardening changes | Pull requests only, after evaluation |
 | `candidate/vX.Y.Z` | `hardened` with upstream tag `vX.Y.Z` merged in | The sync workflow |
 
 `hardening/UPSTREAM_VERSION` on `hardened` records the upstream tag it was last evaluated
 against. Upstream stable tags are the unit of evaluation; nightlies are never merged.
+
+The fork does not mirror upstream `main`. Every branch here except `hardened` and
+`candidate/*` still carries upstream workflows, and a push made with the App token triggers
+them, so nothing pushes upstream commits to any other branch. Leave `main` stale.
 
 ## Pipeline
 
@@ -30,7 +33,7 @@ upstream tag vX ──► sync ──► candidate/vX ──► PR into hardened
                      └──────────► human approval (CODEOWNERS) ──► merge ──► release (phase 2)
 ```
 
-1. **Sync** (`hardened-sync.yml`, every 6 hours). Fast-forwards `main`. When a new stable
+1. **Sync** (`hardened-sync.yml`, every 6 hours). Fetches upstream tags. When a new stable
    tag appears, merges it into a `candidate/` branch, strips upstream workflows, restores
    this fork's own files, and opens a PR. A merge conflict outside upstream workflows stops
    the run and opens an issue; conflicts are always resolved by a person.
@@ -68,17 +71,20 @@ reviewed decision on the record.
 - Upstream workflows are deleted on every merge; only `hardened-*` workflows run.
 - Third-party actions are pinned to full commit SHAs.
 - The sync job uses a GitHub App token scoped to this repo (contents, pull requests,
-  workflows, issues), not a personal token.
+  workflows, issues), not a personal token. The App credentials live in the `hardened-sync`
+  environment, which only the `hardened` branch can use.
 
 ## One-time setup
 
 1. Create a GitHub App owned by your account with repository permissions: Contents (write),
    Pull requests (write), Issues (write), Workflows (write). Install it on this repo only.
-2. Add repo secrets `HARDEN_APP_ID`, `HARDEN_APP_PRIVATE_KEY`, `ANTHROPIC_API_KEY`.
+2. Create environment `hardened-sync` with deployment branches limited to `hardened`, and
+   add its secrets `HARDEN_APP_ID` and `HARDEN_APP_PRIVATE_KEY`. Add repo secret
+   `ANTHROPIC_API_KEY` from a workspace with a spend limit.
 3. Make `hardened` the default branch (scheduled workflows run from the default branch).
 4. Protect `hardened`: require PRs, require review from code owners, require status checks
    `gate` and `review`, block force pushes, include administrators.
-5. Protect `main`: only the sync App may push; block force pushes.
+5. Lock `main` so nothing pushes to it.
 
 ## Phase 2 (not built yet)
 

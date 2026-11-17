@@ -1,5 +1,6 @@
-# Keeps main mirrored to upstream and opens a candidate PR for each new upstream stable tag.
-# Runs from the default branch (hardened). Never builds or runs upstream code.
+# Opens a candidate PR for each new upstream stable tag. Runs from the default branch
+# (hardened). Never builds or runs upstream code, and never pushes upstream commits that
+# still carry upstream workflows: an App-token push would trigger them here.
 name: hardened-sync
 
 on:
@@ -16,6 +17,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    environment: hardened-sync
     steps:
       - name: Get App token
         id: app
@@ -32,13 +34,8 @@ jobs:
           token: ${{ steps.app.outputs.token }}
           persist-credentials: true
 
-      - name: Mirror upstream main
-        run: |
-          git remote add upstream https://github.com/pingdotgg/t3code.git
-          git fetch --no-tags upstream main
-          git fetch upstream 'refs/tags/v*:refs/tags/v*'
-          # Fast-forward only: a non-fast-forward push is rejected, never forced.
-          git push origin refs/remotes/upstream/main:refs/heads/main
+      - name: Fetch upstream tags
+        run: git fetch --no-tags https://github.com/pingdotgg/t3code.git 'refs/tags/v*:refs/tags/v*'
 
       - name: Find a new stable tag
         id: tag
