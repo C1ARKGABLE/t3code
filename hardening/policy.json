@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "organization": "Your Organization",
+  "settings": {
+    "defaultRuntimeMode": { "value": "approval-required", "locked": false },
+    "enableAgentBrowserAccess": { "value": false, "locked": true }
+  },
+  "limits": {
+    "maxRuntimeMode": "auto-accept-edits",
+    "clients": ["desktop", "local-browser", "remote"],
+    "connect": false,
+    "webhookTasks": false,
+    "browserCookieImport": false,
+    "telemetry": false,
+    "providers": {
+      "allowedDrivers": ["claudeAgent", "codex"],
+      "instances": {
+        "claudeAgent": { "locked": true, "binaryPath": "/usr/local/bin/claude" },
+        "codex": { "locked": true, "binaryPath": "/usr/local/bin/codex" }
+      }
+    },
+    "updates": { "mode": "off", "allowNightly": false }
+  }
+}
