@@ -1,0 +1,111 @@
+# Keeps main mirrored to upstream and opens a candidate PR for each new upstream stable tag.
+# Runs from the default branch (hardened). Never builds or runs upstream code.
+name: hardened-sync
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: hardened-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get App token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.HARDEN_APP_ID }}
+          private-key: ${{ secrets.HARDEN_APP_PRIVATE_KEY }}
+
+      - name: Check out hardened
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: hardened
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+          persist-credentials: true
+
+      - name: Mirror upstream main
+        run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --no-tags upstream main
+          git fetch upstream 'refs/tags/v*:refs/tags/v*'
+          # Fast-forward only: a non-fast-forward push is rejected, never forced.
+          git push origin refs/remotes/upstream/main:refs/heads/main
+
+      - name: Find a new stable tag
+        id: tag
+        run: |
+          latest=$(git tag -l 'v*' --sort=-v:refname | grep -Ev -- '-(nightly|preview)' | head -n 1)
+          current=$(cat hardening/UPSTREAM_VERSION)
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          if [ "$latest" = "$current" ] || [ -z "$latest" ]; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --heads origin "candidate/$latest" >/dev/null; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            echo "candidate/$latest already exists"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build candidate branch
+        id: merge
+        if: steps.tag.outputs.new == 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.latest }}
+        run: |
+          git config user.name "hardened-sync[bot]"
+          git config user.email "hardened-sync[bot]@users.noreply.github.com"
+          git switch -c "candidate/$TAG"
+          git merge --no-ff --no-commit "refs/tags/$TAG" || true
+
+          # Upstream workflows never run here: drop them, conflicted or not.
+          git ls-files .github/workflows | sort -u | grep -v '^\.github/workflows/hardened-' \
+            | xargs -r git rm -q -f --ignore-unmatch
+          # Fork-owned paths always keep the hardened versions.
+          git checkout hardened -- .github/workflows/hardened-sync.yml \
+            .github/workflows/hardened-evaluate.yml .github/CODEOWNERS hardening scripts/hardening
+
+          if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+            echo "conflicts=true" >> "$GITHUB_OUTPUT"
+            git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts.txt"
+            git merge --abort
+            exit 0
+          fi
+          echo "$TAG" > hardening/UPSTREAM_VERSION
+          git add -A hardening/UPSTREAM_VERSION .github
+          git commit -q -m "Merge upstream $TAG into hardened candidate"
+          git push origin "candidate/$TAG"
+          echo "conflicts=false" >> "$GITHUB_OUTPUT"
+
+      - name: Open the candidate PR
+        if: steps.merge.outputs.conflicts == 'false'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          TAG: ${{ steps.tag.outputs.latest }}
+          CURRENT: ${{ steps.tag.outputs.current }}
+        run: |
+          gh pr create --base hardened --head "candidate/$TAG" \
+            --title "Upstream $TAG candidate" \
+            --body "Merges upstream \`$TAG\` (from \`$CURRENT\`). The \`gate\` and \`review\` checks evaluate the upstream delta \`$CURRENT...$TAG\`. Merge only after reading both reports. Do not enable auto-merge."
+
+      - name: Report merge conflicts
+        if: steps.merge.outputs.conflicts == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          TAG: ${{ steps.tag.outputs.latest }}
+        run: |
+          title="Upstream $TAG does not merge cleanly into hardened"
+          if gh issue list --state open --search "\"$title\" in:title" --json number --jq 'length' | grep -q '^0$'; then
+            { echo "Conflicting files:"; echo; sed 's/^/- `/; s/$/`/' "$RUNNER_TEMP/conflicts.txt"
+              echo; echo "Resolve by hand on a \`candidate/$TAG\` branch and open the PR yourself."; } > "$RUNNER_TEMP/body.md"
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi

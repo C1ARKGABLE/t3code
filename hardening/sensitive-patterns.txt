@@ -1,0 +1,13 @@
+# name = case-insensitive regex, matched against added lines of code.
+# A match is a finding until fixed or listed in accepted-findings.txt.
+
+telemetry-sdk    = \b(posthog|axiom|sentry|amplitude|mixpanel|datadog|bugsnag|statsig|honeycomb)\b|@segment/|analytics\.segment
+otel-export      = \b(otlp|opentelemetry|OTEL_EXPORTER)\b
+telemetry-word   = \b(telemetry|analytics|trackEvent|captureEvent)\b
+t3-hosted        = \bt3\.(codes|gg|chat)\b
+tunnel           = \b(cloudflared|trycloudflare|ngrok|localtunnel)\b
+relay            = \brelay\b
+raw-socket       = \b(net\.connect|net\.createConnection|dgram\.createSocket|tls\.connect)\b
+remote-exec      = \b(eval\(|new Function\(|vm\.runIn\w+Context)
+dynamic-import   = \bimport\(\s*[`'"]https?://
+env-exfil        = \bprocess\.env\b.*\b(fetch|post|send)\b

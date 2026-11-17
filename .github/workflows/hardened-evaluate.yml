@@ -1,0 +1,144 @@
+# Evaluates every PR into hardened. For upstream candidate PRs it evaluates the upstream
+# delta between the old and new tags. Check scripts and their rules always come from the
+# base branch, so a PR cannot change the checks that evaluate it. No job builds or runs
+# code from the PR.
+name: hardened-evaluate
+
+on:
+  pull_request:
+    branches: [hardened]
+
+permissions: {}
+
+concurrency:
+  group: hardened-evaluate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      base: ${{ steps.range.outputs.base }}
+      head: ${{ steps.range.outputs.head }}
+    steps:
+      - name: Check out trusted base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check out PR
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: subject
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Choose the range to evaluate
+        id: range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          old=$(cat trusted/hardening/UPSTREAM_VERSION)
+          new=$(cat subject/hardening/UPSTREAM_VERSION)
+          if [ "$old" != "$new" ]; then
+            git -C subject fetch -q --no-tags https://github.com/pingdotgg/t3code.git \
+              "refs/tags/$old:refs/tags/$old" "refs/tags/$new:refs/tags/$new"
+            echo "base=$old" >> "$GITHUB_OUTPUT"; echo "head=$new" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=$BASE_SHA" >> "$GITHUB_OUTPUT"; echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Assemble rules
+        run: |
+          # Rules come from the base branch. Acceptances come from the PR, where every
+          # edit to that file needs a CODEOWNERS review.
+          mkdir rules
+          cp trusted/hardening/*.txt rules/
+          cp subject/hardening/accepted-findings.txt rules/
+
+      - name: Run the gate
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD: ${{ steps.range.outputs.head }}
+        run: |
+          set +e
+          python3 trusted/scripts/hardening/gate.py --repo subject --base "$BASE" --head "$HEAD" \
+            --config rules --report-md gate-report.md --report-json gate-report.json
+          status=$?
+          cat gate-report.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gate-report
+          path: gate-report.*
+
+  review:
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.base != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out trusted base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check out PR
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: subject
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch upstream tags
+        env:
+          BASE: ${{ needs.gate.outputs.base }}
+          HEAD: ${{ needs.gate.outputs.head }}
+        run: |
+          case "$BASE" in v*) git -C subject fetch -q --no-tags https://github.com/pingdotgg/t3code.git \
+            "refs/tags/$BASE:refs/tags/$BASE" "refs/tags/$HEAD:refs/tags/$HEAD" ;; esac
+
+      - name: Download gate report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gate-report
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Run the Claude review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BASE: ${{ needs.gate.outputs.base }}
+          HEAD: ${{ needs.gate.outputs.head }}
+        run: |
+          python -m pip install --quiet "anthropic==2.10.0"
+          set +e
+          python trusted/scripts/hardening/review.py --repo subject --base "$BASE" --head "$HEAD" \
+            --config trusted/hardening --gate-json gate-report.json \
+            --report-md review-report.md --report-json review-report.json
+          status=$?
+          cat review-report.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: review-report
+          path: review-report.*

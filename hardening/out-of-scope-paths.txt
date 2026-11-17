@@ -1,0 +1,5 @@
+# Paths this fork never builds or ships. The gate skips them; the release workflow
+# (phase 2) must fail if a build includes anything from them.
+
+apps/mobile/     # published phone apps are upstream builds; out of scope
+infra/           # upstream's hosted services (relay, deploys)

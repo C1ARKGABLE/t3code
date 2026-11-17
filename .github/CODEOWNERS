@@ -1,0 +1,5 @@
+# Every change to hardened needs the owner's review; these paths decide what the checks enforce.
+*                    @C1ARKGABLE
+/hardening/          @C1ARKGABLE
+/scripts/hardening/  @C1ARKGABLE
+/.github/            @C1ARKGABLE

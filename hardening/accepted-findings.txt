@@ -1,0 +1,3 @@
+# Gate findings accepted after review. One finding id per line, with the reason:
+#   dep:left-pad@1.3.0   # string padding, no network or install scripts
+# Edits to this file need a CODEOWNERS review.

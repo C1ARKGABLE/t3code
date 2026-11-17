@@ -1,0 +1,14 @@
+# Hosts the hardened build may reference in code without a finding.
+# One hostname per line. "*.example.com" also covers example.com itself.
+# Every addition is a reviewed decision: say why next to it.
+
+api.anthropic.com        # Claude provider
+*.anthropic.com          # Claude provider auth and console
+claude.ai                # Claude sign-in
+*.claude.ai              # Claude sign-in
+api.openai.com           # Codex provider
+auth.openai.com          # Codex sign-in
+chatgpt.com              # Codex sign-in
+github.com               # source control features run through git and gh
+api.github.com           # source control features run through git and gh
+*.ts.net                 # tailnet hosts (Tailscale Serve)
